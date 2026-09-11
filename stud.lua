@@ -440,3 +440,72 @@ local text = "1player"
 local result = string.match(text, "^[%a_][%w_]*$")
 print(result ~= nil)
 --]]
+
+-- 52
+local text = "score = 1234"
+local name, value = string.match(text, "^%s*([%a_][%w_]*)%s*=%s*(%d+)%s*$")
+print(name, value)
+
+-- 53
+local text = "local hp = 100"
+local name, value = string.match(text, "^local%s+([%a_][%w_]*)%s*=%s*(%d+)%s*$")
+print(name, value)
+
+-- 54
+local text = "move(player, 10, 20)"
+local name, arguments = string.match(text, "([%a_][%w_]*)%s*(%b())")
+print(name, arguments)
+
+-- 55
+local text = "user:'tom'"
+local key, value = string.match(text, "(%w+):'([^']*)'")
+print(key, value)
+
+-- 56
+local text = "[INFO] init done"
+local level, message = string.match(text, "^%[([%u]+)%]%s*(.*)$")
+print(level, message)
+
+-- 57
+local text = "[2026-09-05 10:30:15] hello"
+local date, time, message = string.match(text, "^%[(%d%d%d%d%-%d%d%-%d%d)%s(%d%d:%d%d:%d%d)%]%s*(.*)$")
+print(date, time, message)
+
+-- 58
+local text = "version v1.2.3"
+local major, minor, patch = string.match(text, "v(%d+)%.(%d+)%.(%d+)")
+print(major, minor, patch)
+
+-- 59
+local text = "accent color: #FFA07A"
+local red, green, blue = string.match(text, "#(%x%x)(%x%x)(%x%x)")
+print(red, green, blue)
+
+-- 60
+local text = "report.final.txt"
+local base = string.match(text, "^(.+)%.[%w]+$")
+print(base)
+
+-- 61
+local text = "### Intro to Lua"
+local hashes, title = string.match(text, "^(#+)%s+(.+)$")
+print(#hashes, title)
+
+-- 62
+local text = "  key_name : some value  "
+local key, value = string.match(text, "^%s*([%w_]+)%s*:%s*(.-)%s*$")
+print(key, value)
+
+-- 63
+local text = "updated 2026-09-05T14:30"
+local date, time = string.match(text, "(%d%d%d%d%-%d%d%-%d%d)T(%d%d:%d%d)")
+print(date, time)
+
+-- 64
+local text = "function foo_bar123(a, b)"
+print(string.match(text, "^function%s+([%a_][%w_]*)%s*%("))
+
+-- 65
+local text = "game.core.player"
+print(string.match(text, "([%w_]+)$"))
+
