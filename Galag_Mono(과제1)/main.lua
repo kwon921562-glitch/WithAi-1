@@ -59,6 +59,10 @@ local invincibleDuration = 1
 
 -- 7단계: HUD(점수/라이프) + 게임오버 + R 키 재시작
 local gameOver = false
+-- 추가 단계: 편대를 전멸시키면 1.5초 후 더 어려운 라운드로 진행한다.
+local round = 1
+local roundWait = 1.5
+local roundTimer = 0
 
 local function spawnParticles(x, y, isPlayer)
     local color = isPlayer and {0.3, 0.9, 1} or {1, 0.7, 0.2}
@@ -258,8 +262,12 @@ local function updateEnemyBullets(dt)
     end
 end
 
--- 처음 시작할 때와 재시작할 때 같은 초기화 함수를 사용한다.
-local function resetGame()
+-- 라운드 시작은 점수/라이프를 유지하고 편대와 총알만 새로 준비한다.
+local function startRound()
+    enemySpeed = math.min(70 + (round - 1) * 15, 220)
+    enemyShotInterval = math.max(0.8 - (round - 1) * 0.06, 0.25)
+    enemyBulletSpeed = math.min(240 + (round - 1) * 15, 420)
+    roundTimer = 0
     -- 플레이어를 화면 아래쪽 중앙에 배치한다.
     player.x = (love.graphics.getWidth() - player.width) / 2
     player.y = love.graphics.getHeight() - player.height - 30
@@ -270,6 +278,13 @@ local function resetGame()
     -- 4단계: 적 총알과 발사 대기 시간을 초기화한다.
     enemyBullets = {}
     enemyShotCooldown = enemyShotInterval
+    invincibleTimer = 0
+end
+
+-- 처음 시작할 때와 재시작할 때 같은 초기화 함수를 사용한다.
+local function resetGame()
+    round = 1
+    startRound()
     -- 5단계: 점수와 라이프 초기화.
     score = 0
     lives = 3
@@ -301,6 +316,15 @@ function love.update(dt)
     updateEffects(dt)
     -- 7단계: 게임오버 후에는 연출만 갱신하고 이동/발사/충돌을 멈춘다.
     if gameOver then
+        return
+    end
+    -- 전멸 후에는 연출과 안내를 보여주고 다음 편대를 생성한다.
+    if roundTimer > 0 then
+        roundTimer = math.max(0, roundTimer - dt)
+        if roundTimer == 0 then
+            round = round + 1
+            startRound()
+        end
         return
     end
     -- update에서는 입력을 처리하고 위치를 변경한다.
@@ -348,6 +372,11 @@ function love.update(dt)
     -- 7단계: 라이프를 모두 잃으면 게임오버로 전환한다.
     if lives <= 0 then
         gameOver = true
+    elseif #enemies == 0 then
+        -- 마지막 적을 잡으면 남은 총알을 정리해 전환 중 피해를 막는다.
+        bullets = {}
+        enemyBullets = {}
+        roundTimer = roundWait
     end
 end
 
@@ -413,6 +442,12 @@ function love.draw()
     local screenHeight = love.graphics.getHeight()
     love.graphics.print("Score: " .. score, 16, 16)
     love.graphics.printf("Lives: " .. lives, 0, 16, screenWidth - 16, "right")
+    love.graphics.printf("Round: " .. round, 0, 16, screenWidth, "center")
+
+    if roundTimer > 0 and not gameOver then
+        love.graphics.printf("ROUND " .. round .. " CLEAR!", 0, screenHeight / 2 - 20, screenWidth, "center")
+        love.graphics.printf("Next round: " .. (round + 1), 0, screenHeight / 2 + 20, screenWidth, "center")
+    end
 
     if gameOver then
         love.graphics.setColor(0, 0, 0, 0.7)
