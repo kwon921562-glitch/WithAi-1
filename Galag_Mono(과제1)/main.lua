@@ -50,6 +50,9 @@ local shakeDuration = 0.25
 local shakeTimer = 0
 local shakeX, shakeY = 0, 0
 
+-- 7단계: HUD(점수/라이프) + 게임오버 + R 키 재시작
+local gameOver = false
+
 local function spawnParticles(x, y)
     for i = 1, 12 do
         local angle = love.math.random() * math.pi * 2
@@ -199,10 +202,8 @@ local function updateEnemyBullets(dt)
     end
 end
 
-function love.load()
-    -- 창 제목과 크기는 conf.lua의 설정을 사용한다.
-    love.graphics.setBackgroundColor(0.05, 0.05, 0.1)
-
+-- 처음 시작할 때와 재시작할 때 같은 초기화 함수를 사용한다.
+local function resetGame()
     -- 플레이어를 화면 아래쪽 중앙에 배치한다.
     player.x = (love.graphics.getWidth() - player.width) / 2
     player.y = love.graphics.getHeight() - player.height - 30
@@ -213,18 +214,36 @@ function love.load()
     -- 4단계: 적 총알과 발사 대기 시간을 초기화한다.
     enemyBullets = {}
     enemyShotCooldown = enemyShotInterval
-    -- 5단계: 점수와 라이프 초기화 (HUD와 게임오버는 7단계에서 추가).
+    -- 5단계: 점수와 라이프 초기화.
     score = 0
     lives = 3
     -- 6단계: 연출 상태도 처음으로 되돌린다.
     particles = {}
     flashTimer, shakeTimer = 0, 0
     shakeX, shakeY = 0, 0
+    gameOver = false
+end
+
+function love.load()
+    -- 창 제목과 크기는 conf.lua의 설정을 사용한다.
+    love.graphics.setBackgroundColor(0.05, 0.05, 0.1)
+    resetGame()
+end
+
+function love.keypressed(key)
+    -- 7단계: 게임오버 상태에서 R 키를 한 번 누르면 새 게임을 시작한다.
+    if gameOver and key == "r" then
+        resetGame()
+    end
 end
 
 function love.update(dt)
     -- 6단계: 기존 연출을 갱신한 뒤 이번 프레임의 충돌 연출을 생성한다.
     updateEffects(dt)
+    -- 7단계: 게임오버 후에는 연출만 갱신하고 이동/발사/충돌을 멈춘다.
+    if gameOver then
+        return
+    end
     -- update에서는 입력을 처리하고 위치를 변경한다.
     local direction = 0
     if love.keyboard.isDown("left", "a") then
@@ -267,6 +286,10 @@ function love.update(dt)
     updateEnemyBullets(dt)
     -- 5단계: 모든 위치를 갱신한 뒤 충돌을 검사한다.
     checkCollisions()
+    -- 7단계: 라이프를 모두 잃으면 게임오버로 전환한다.
+    if lives <= 0 then
+        gameOver = true
+    end
 end
 
 function love.draw()
@@ -308,4 +331,20 @@ function love.draw()
         love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
     end
     love.graphics.setColor(1, 1, 1, 1)
+
+    -- 7단계: HUD는 흔들리지 않는 화면 좌표에 표시한다.
+    -- 기본 폰트로 표시할 수 있도록 영문을 사용한다.
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+    love.graphics.print("Score: " .. score, 16, 16)
+    love.graphics.printf("Lives: " .. lives, 0, 16, screenWidth - 16, "right")
+
+    if gameOver then
+        love.graphics.setColor(0, 0, 0, 0.7)
+        love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.printf("GAME OVER", 0, screenHeight / 2 - 40, screenWidth, "center")
+        love.graphics.printf("Final Score: " .. score, 0, screenHeight / 2, screenWidth, "center")
+        love.graphics.printf("Press R to restart", 0, screenHeight / 2 + 40, screenWidth, "center")
+    end
 end
