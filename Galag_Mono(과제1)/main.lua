@@ -17,8 +17,7 @@ local shotInterval = 0.2 -- 발사 사이에 기다리는 시간(초)
 local shotCooldown = 0
 
 function love.load()
-    love.window.setTitle("Galaga - Step 2")
-    love.window.setMode(800, 600)
+    -- 창 제목과 크기는 conf.lua의 설정을 사용한다.
     love.graphics.setBackgroundColor(0.05, 0.05, 0.1)
 
     -- 플레이어를 화면 아래쪽 중앙에 배치한다.
