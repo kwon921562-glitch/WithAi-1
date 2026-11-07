@@ -49,6 +49,8 @@ local flashTimer = 0
 local shakeDuration = 0.25
 local shakeTimer = 0
 local shakeX, shakeY = 0, 0
+local flashOpacity = 0
+local shakeStrength = 0
 -- 충돌 연출 확장: 폭발 링과 피격 후 1초간 무적/깜빡임
 local bursts = {}
 local burstLifetime = 0.35
@@ -75,6 +77,28 @@ local function spawnParticles(x, y, isPlayer)
     end
 end
 
+-- 적 파괴는 짧고 약하게, 플레이어 피격은 길고 강하게 표현한다.
+local function triggerScreenEffect(isPlayer)
+    local duration = isPlayer and 0.2 or 0.08
+    local opacity = isPlayer and 0.55 or 0.18
+    local shakeTime = isPlayer and 0.35 or 0.14
+    local strength = isPlayer and 12 or 4
+    -- 동시에 여러 충돌이 나도 강한 연출을 약한 연출로 덮어쓰지 않는다.
+    if flashTimer <= 0 or opacity >= flashOpacity then
+        flashDuration = duration
+        flashTimer = duration
+        flashOpacity = opacity
+    end
+    if shakeTimer <= 0 or strength >= shakeStrength then
+        shakeDuration = shakeTime
+        shakeTimer = shakeTime
+        shakeStrength = strength
+        -- 충돌한 프레임부터 흔들림을 보이게 한다.
+        shakeX = strength
+        shakeY = -strength * 0.5
+    end
+end
+
 local function damagePlayer()
     if invincibleTimer > 0 or lives <= 0 then
         return
@@ -82,8 +106,7 @@ local function damagePlayer()
     lives = math.max(0, lives - 1)
     invincibleTimer = invincibleDuration
     spawnParticles(player.x + player.width / 2, player.y + player.height / 2, true)
-    flashTimer = flashDuration
-    shakeTimer = shakeDuration
+    triggerScreenEffect(true)
 end
 
 local function updateEffects(dt)
@@ -110,7 +133,7 @@ local function updateEffects(dt)
     shakeX, shakeY = 0, 0
     if shakeTimer > 0 then
         -- 시간이 지날수록 흔들림을 줄인다. 실제 충돌 좌표는 바꾸지 않는다.
-        local strength = 6 * shakeTimer / shakeDuration
+        local strength = shakeStrength * shakeTimer / shakeDuration
         shakeX = (love.math.random() * 2 - 1) * strength
         shakeY = (love.math.random() * 2 - 1) * strength
     end
@@ -133,6 +156,7 @@ local function checkCollisions()
                 enemy.x, enemy.y, enemyWidth, enemyHeight) then
                 -- 6단계: 적을 제거하기 전에 중심에서 파괴 파티클을 만든다.
                 spawnParticles(enemy.x + enemyWidth / 2, enemy.y + enemyHeight / 2)
+                triggerScreenEffect(false)
                 table.remove(bullets, i)
                 table.remove(enemies, j)
                 score = score + scorePerEnemy
@@ -254,6 +278,7 @@ local function resetGame()
     bursts = {}
     invincibleTimer = 0
     flashTimer, shakeTimer = 0, 0
+    flashOpacity, shakeStrength = 0, 0
     shakeX, shakeY = 0, 0
     gameOver = false
 end
@@ -377,7 +402,7 @@ function love.draw()
 
     -- 흔들림과 관계없이 화면 전체에 반투명 흰색을 덮어 flash를 표현한다.
     if flashTimer > 0 then
-        love.graphics.setColor(1, 1, 1, 0.5 * flashTimer / flashDuration)
+        love.graphics.setColor(1, 1, 1, flashOpacity * flashTimer / flashDuration)
         love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
     end
     love.graphics.setColor(1, 1, 1, 1)
