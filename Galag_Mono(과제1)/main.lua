@@ -28,6 +28,14 @@ local enemySpeed = 70
 local enemyDirection = 1 -- 1은 오른쪽, -1은 왼쪽
 local enemyDrop = enemyHeight + enemyGapY -- 한 줄 간격만큼 하강
 
+-- 4단계: 적 랜덤 발사 + 적 총알 아래로 이동
+local enemyBullets = {}
+local enemyBulletWidth = 6
+local enemyBulletHeight = 12
+local enemyBulletSpeed = 240
+local enemyShotInterval = 0.8 -- 편대에서 0.8초마다 한 발 발사
+local enemyShotCooldown = enemyShotInterval
+
 local function createEnemies()
     enemies = {}
     enemyDirection = 1
@@ -79,6 +87,28 @@ local function updateEnemies(dt)
     end
 end
 
+local function updateEnemyBullets(dt)
+    -- 기존 총알을 먼저 이동하고 화면 아래로 벗어난 총알을 제거한다.
+    for i = #enemyBullets, 1, -1 do
+        local bullet = enemyBullets[i]
+        bullet.y = bullet.y + enemyBulletSpeed * dt
+        if bullet.y > love.graphics.getHeight() then
+            table.remove(enemyBullets, i)
+        end
+    end
+
+    enemyShotCooldown = math.max(0, enemyShotCooldown - dt)
+    if enemyShotCooldown <= 0 and #enemies > 0 then
+        -- 살아 있는 적 중 한 마리를 무작위로 골라 아래쪽 중앙에서 발사한다.
+        local shooter = enemies[love.math.random(#enemies)]
+        enemyBullets[#enemyBullets + 1] = {
+            x = shooter.x + (enemyWidth - enemyBulletWidth) / 2,
+            y = shooter.y + enemyHeight,
+        }
+        enemyShotCooldown = enemyShotInterval
+    end
+end
+
 function love.load()
     -- 창 제목과 크기는 conf.lua의 설정을 사용한다.
     love.graphics.setBackgroundColor(0.05, 0.05, 0.1)
@@ -90,6 +120,9 @@ function love.load()
     shotCooldown = 0
     -- 3단계: 화면 위쪽 중앙에 3행 8열 편대를 만든다.
     createEnemies()
+    -- 4단계: 적 총알과 발사 대기 시간을 초기화한다.
+    enemyBullets = {}
+    enemyShotCooldown = enemyShotInterval
 end
 
 function love.update(dt)
@@ -131,6 +164,8 @@ function love.update(dt)
 
     -- 3단계: 적 편대의 위치와 이동 방향을 갱신한다.
     updateEnemies(dt)
+    -- 4단계: 이동한 적의 현재 위치에서 발사하고 적 총알을 갱신한다.
+    updateEnemyBullets(dt)
 end
 
 function love.draw()
@@ -148,5 +183,11 @@ function love.draw()
     love.graphics.setColor(1, 0.3, 0.4)
     for _, enemy in ipairs(enemies) do
         love.graphics.rectangle("fill", enemy.x, enemy.y, enemyWidth, enemyHeight)
+    end
+
+    -- 4단계: 적 총알은 플레이어 총알과 구분되는 주황색으로 그린다.
+    love.graphics.setColor(1, 0.55, 0.15)
+    for _, bullet in ipairs(enemyBullets) do
+        love.graphics.rectangle("fill", bullet.x, bullet.y, enemyBulletWidth, enemyBulletHeight)
     end
 end
