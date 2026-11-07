@@ -15,7 +15,7 @@ local bulletHeight = 12
 local bulletSpeed = 500
 local shotInterval = 0.2 -- 발사 사이에 기다리는 시간(초)
 local shotCooldown = 0
--- 2라운드부터 X 키 유도탄: 가장 가까운 적을 추적, 재사용 대기 3초.
+-- 2라운드부터 Shift 키 유도탄: 가장 가까운 적을 추적, 재사용 대기 3초.
 local missileCooldown = 0
 local missileInterval = 3
 local missileSpeed = 380
@@ -63,6 +63,8 @@ local invincibleDuration = 1
 
 -- 7단계: HUD(점수/라이프) + 게임오버 + R 키 재시작
 local gameOver = false
+local victory = false
+local bossMaxHP = 35
 -- 추가 단계: 편대를 전멸시키면 1.5초 후 더 어려운 라운드로 진행한다.
 local round = 1
 local roundWait = 1.5
@@ -166,8 +168,12 @@ local function checkCollisions()
                 spawnParticles(enemy.x + enemyWidth / 2, enemy.y + enemyHeight / 2)
                 triggerScreenEffect(false)
                 table.remove(bullets, i)
-                table.remove(enemies, j)
-                score = score + scorePerEnemy
+                -- 보스는 일반탄 1, 유도탄 5의 피해를 받는다.
+                enemy.hp = (enemy.hp or 1) - (bullet.homing and 5 or 1)
+                if enemy.hp <= 0 then
+                    table.remove(enemies, j)
+                    score = score + (enemy.boss and 2000 or scorePerEnemy)
+                end
                 break -- 이미 제거한 총알로 다른 적을 검사하지 않는다.
             end
         end
@@ -196,6 +202,16 @@ end
 local function createEnemies()
     enemies = {}
     enemyDirection = 1
+    if round == 3 then
+        enemies[1] = {
+            x = (love.graphics.getWidth() - enemyWidth) / 2,
+            y = 90,
+            hp = bossMaxHP,
+            boss = true,
+            pattern = 1, -- 1: 부채꼴, 2: 위치를 미리 고정하는 조준탄
+        }
+        return
+    end
     local formationWidth = enemyColumns * enemyWidth + (enemyColumns - 1) * enemyGapX
     local startX = (love.graphics.getWidth() - formationWidth) / 2
 
@@ -235,7 +251,7 @@ local function updateEnemies(dt)
     -- 모든 적을 같은 거리만큼 이동해 그리드 모양을 유지한다.
     for _, enemy in ipairs(enemies) do
         enemy.x = enemy.x + moveX
-        if reachedEdge then
+        if reachedEdge and not enemy.boss then
             enemy.y = enemy.y + enemyDrop
         end
     end
@@ -248,30 +264,72 @@ local function updateEnemyBullets(dt)
     -- 기존 총알을 먼저 이동하고 화면 아래로 벗어난 총알을 제거한다.
     for i = #enemyBullets, 1, -1 do
         local bullet = enemyBullets[i]
-        bullet.y = bullet.y + enemyBulletSpeed * dt
-        if bullet.y > love.graphics.getHeight() then
+        bullet.x = bullet.x + (bullet.vx or 0) * dt
+        bullet.y = bullet.y + (bullet.vy or enemyBulletSpeed) * dt
+        if bullet.y > love.graphics.getHeight() or bullet.x + enemyBulletWidth < 0
+            or bullet.x > love.graphics.getWidth() then
             table.remove(enemyBullets, i)
         end
     end
 
     enemyShotCooldown = math.max(0, enemyShotCooldown - dt)
+    local boss = enemies[1]
+    -- 조준선을 0.4초 먼저 표시하고 목표를 고정한다. 이후 이동하면 피할 수 있다.
+    if boss and boss.boss and boss.pattern == 2 and enemyShotCooldown <= 0.4
+        and not boss.aimX then
+        boss.aimX = player.x + player.width / 2
+        boss.aimY = player.y + player.height / 2
+    end
     if enemyShotCooldown <= 0 and #enemies > 0 then
         -- 살아 있는 적 중 한 마리를 무작위로 골라 아래쪽 중앙에서 발사한다.
         local shooter = enemies[love.math.random(#enemies)]
-        enemyBullets[#enemyBullets + 1] = {
-            x = shooter.x + (enemyWidth - enemyBulletWidth) / 2,
-            y = shooter.y + enemyHeight,
-        }
-        enemyShotCooldown = enemyShotInterval
+        local x = shooter.x + (enemyWidth - enemyBulletWidth) / 2
+        local y = shooter.y + enemyHeight
+        local enraged = shooter.boss and shooter.hp <= bossMaxHP / 2
+        if shooter.boss and shooter.pattern == 2 then
+            local dx = shooter.aimX - (x + enemyBulletWidth / 2)
+            local dy = shooter.aimY - (y + enemyBulletHeight / 2)
+            local length = math.max(1, math.sqrt(dx * dx + dy * dy))
+            local speed = enraged and 320 or 280
+            -- 후반에는 양옆 보조탄을 추가한다. 발사 후에는 추적하지 않는다.
+            local sides = enraged and 1 or 0
+            for offset = -sides, sides do
+                enemyBullets[#enemyBullets + 1] = {
+                    x = x, y = y, vx = dx / length * speed + offset * 55,
+                    vy = dy / length * speed,
+                }
+            end
+        else
+            -- 전반 3발, 후반 5발. 탄 사이 간격을 두어 회피 경로를 남긴다.
+            local spread = shooter.boss and (enraged and 2 or 1) or 0
+            for offset = -spread, spread do
+                enemyBullets[#enemyBullets + 1] = {
+                    x = x, y = y, vx = offset * 75,
+                }
+            end
+        end
+        if shooter.boss then
+            shooter.pattern = shooter.pattern == 1 and 2 or 1
+            shooter.aimX, shooter.aimY = nil, nil
+        end
+        enemyShotCooldown = enraged and 0.65 or enemyShotInterval
     end
 end
 
 -- 라운드 시작은 점수/라이프를 유지하고 편대와 총알만 새로 준비한다.
 local function startRound()
+    enemyWidth = round == 3 and 140 or 32
+    enemyHeight = round == 3 and 64 or 24
     enemyRows = round >= 2 and 4 or 3
     enemySpeed = math.min(70 + (round - 1) * 40, 230)
     enemyShotInterval = math.max(0.8 - (round - 1) * 0.25, 0.25)
     enemyBulletSpeed = math.min(240 + (round - 1) * 40, 420)
+    -- 보스전은 탄막 사이에 회피할 시간을 주도록 별도로 조정한다.
+    if round == 3 then
+        enemySpeed = 125
+        enemyShotInterval = 0.85
+        enemyBulletSpeed = 245
+    end
     roundTimer = 0
     -- 플레이어를 화면 아래쪽 중앙에 배치한다.
     player.x = (love.graphics.getWidth() - player.width) / 2
@@ -302,6 +360,7 @@ local function resetGame()
     flashOpacity, shakeStrength = 0, 0
     shakeX, shakeY = 0, 0
     gameOver = false
+    victory = false
 end
 
 function love.load()
@@ -312,9 +371,9 @@ end
 
 function love.keypressed(key)
     -- 7단계: 게임오버 상태에서 R 키를 한 번 누르면 새 게임을 시작한다.
-    if gameOver and key == "r" then
+    if (gameOver or victory) and key == "r" then
         resetGame()
-    elseif key == "x" and round >= 2 and not gameOver
+    elseif (key == "lshift" or key == "rshift") and round >= 2 and not gameOver and not victory
         and roundTimer == 0 and missileCooldown <= 0 and #enemies > 0 then
         bullets[#bullets + 1] = {
             x = player.x + (player.width - bulletWidth) / 2,
@@ -330,7 +389,7 @@ function love.update(dt)
     -- 6단계: 기존 연출을 갱신한 뒤 이번 프레임의 충돌 연출을 생성한다.
     updateEffects(dt)
     -- 7단계: 게임오버 후에는 연출만 갱신하고 이동/발사/충돌을 멈춘다.
-    if gameOver then
+    if gameOver or victory then
         return
     end
     -- 전멸 후에는 연출과 안내를 보여주고 다음 편대를 생성한다.
@@ -414,7 +473,11 @@ function love.update(dt)
         -- 마지막 적을 잡으면 남은 총알을 정리해 전환 중 피해를 막는다.
         bullets = {}
         enemyBullets = {}
-        roundTimer = roundWait
+        if round == 3 then
+            victory = true
+        else
+            roundTimer = roundWait
+        end
     end
 end
 
@@ -447,7 +510,25 @@ function love.draw()
     -- 3단계: 적은 붉은색 사각형으로 그린다.
     love.graphics.setColor(1, 0.3, 0.4)
     for _, enemy in ipairs(enemies) do
+        if enemy.boss then
+            love.graphics.setColor(0.7, 0.2, 1)
+        else
+            love.graphics.setColor(1, 0.3, 0.4)
+        end
         love.graphics.rectangle("fill", enemy.x, enemy.y, enemyWidth, enemyHeight)
+        if enemy.boss then
+            if enemy.aimX then
+                love.graphics.setColor(1, 0.3, 0.2, 0.6)
+                love.graphics.line(enemy.x + enemyWidth / 2, enemy.y + enemyHeight,
+                    enemy.aimX, enemy.aimY)
+                love.graphics.circle("line", enemy.aimX, enemy.aimY, 18)
+            end
+            -- 흰색 코어와 양쪽 포구로 일반 적과 모양을 구분한다.
+            love.graphics.setColor(1, 0.8, 0.3)
+            love.graphics.rectangle("fill", enemy.x + 55, enemy.y + 20, 30, 24)
+            love.graphics.rectangle("fill", enemy.x + 10, enemy.y + 50, 18, 18)
+            love.graphics.rectangle("fill", enemy.x + 112, enemy.y + 50, 18, 18)
+        end
     end
 
     -- 4단계: 적 총알은 플레이어 총알과 구분되는 주황색으로 그린다.
@@ -487,10 +568,18 @@ function love.draw()
     love.graphics.print("Score: " .. score, 16, 16)
     love.graphics.printf("Lives: " .. lives, 0, 16, screenWidth - 16, "right")
     love.graphics.printf("Round: " .. round, 0, 16, screenWidth, "center")
-    local skillText = "Homing [X]: unlocks in Round 2"
+    if round == 3 and #enemies > 0 then
+        love.graphics.setColor(0.2, 0.1, 0.25)
+        love.graphics.rectangle("fill", 100, 42, screenWidth - 200, 14)
+        love.graphics.setColor(0.85, 0.3, 1)
+        love.graphics.rectangle("fill", 100, 42, (screenWidth - 200) * enemies[1].hp / bossMaxHP, 14)
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.printf("BOSS " .. enemies[1].hp .. " / " .. bossMaxHP, 0, 60, screenWidth, "center")
+    end
+    local skillText = "Homing [Shift]: unlocks in Round 2"
     if round >= 2 then
-        skillText = missileCooldown <= 0 and "Homing [X]: READY"
-            or string.format("Homing [X]: %.1fs", missileCooldown)
+        skillText = missileCooldown <= 0 and "Homing [Shift]: READY"
+            or string.format("Homing [Shift]: %.1fs", missileCooldown)
     end
     love.graphics.print(skillText, 16, screenHeight - 22)
 
@@ -498,15 +587,15 @@ function love.draw()
         love.graphics.printf("ROUND " .. round .. " CLEAR!", 0, screenHeight / 2 - 20, screenWidth, "center")
         love.graphics.printf("Next round: " .. (round + 1), 0, screenHeight / 2 + 20, screenWidth, "center")
         if round == 1 then
-            love.graphics.printf("Homing unlocked: press X", 0, screenHeight / 2 + 50, screenWidth, "center")
+            love.graphics.printf("Homing unlocked: press Shift", 0, screenHeight / 2 + 50, screenWidth, "center")
         end
     end
 
-    if gameOver then
+    if gameOver or victory then
         love.graphics.setColor(0, 0, 0, 0.7)
         love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.printf("GAME OVER", 0, screenHeight / 2 - 40, screenWidth, "center")
+        love.graphics.printf(victory and "ALL CLEAR!" or "GAME OVER", 0, screenHeight / 2 - 40, screenWidth, "center")
         love.graphics.printf("Final Score: " .. score, 0, screenHeight / 2, screenWidth, "center")
         love.graphics.printf("Press R to restart", 0, screenHeight / 2 + 40, screenWidth, "center")
     end
