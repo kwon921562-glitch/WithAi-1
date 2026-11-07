@@ -36,6 +36,45 @@ local enemyBulletSpeed = 240
 local enemyShotInterval = 0.8 -- 편대에서 0.8초마다 한 발 발사
 local enemyShotCooldown = enemyShotInterval
 
+-- 5단계: 사각형 충돌 판정 + 점수 증가 + 라이프 감소
+local score = 0
+local lives = 3
+local scorePerEnemy = 100
+
+-- 두 사각형이 가로와 세로 방향 모두 겹치면 충돌이다(AABB).
+local function overlaps(ax, ay, aw, ah, bx, by, bw, bh)
+    return ax < bx + bw and ax + aw > bx
+        and ay < by + bh and ay + ah > by
+end
+
+local function checkCollisions()
+    -- 내 총알 하나는 적 하나만 파괴한다.
+    -- 삭제할 때 인덱스가 밀리지 않도록 뒤에서부터 검사한다.
+    for i = #bullets, 1, -1 do
+        local bullet = bullets[i]
+        for j = #enemies, 1, -1 do
+            local enemy = enemies[j]
+            if overlaps(bullet.x, bullet.y, bulletWidth, bulletHeight,
+                enemy.x, enemy.y, enemyWidth, enemyHeight) then
+                table.remove(bullets, i)
+                table.remove(enemies, j)
+                score = score + scorePerEnemy
+                break -- 이미 제거한 총알로 다른 적을 검사하지 않는다.
+            end
+        end
+    end
+
+    -- 플레이어에 맞은 적 총알은 제거하고 라이프를 1 줄인다.
+    for i = #enemyBullets, 1, -1 do
+        local bullet = enemyBullets[i]
+        if overlaps(bullet.x, bullet.y, enemyBulletWidth, enemyBulletHeight,
+            player.x, player.y, player.width, player.height) then
+            table.remove(enemyBullets, i)
+            lives = math.max(0, lives - 1) -- 라이프가 음수가 되지 않도록 제한
+        end
+    end
+end
+
 local function createEnemies()
     enemies = {}
     enemyDirection = 1
@@ -123,6 +162,9 @@ function love.load()
     -- 4단계: 적 총알과 발사 대기 시간을 초기화한다.
     enemyBullets = {}
     enemyShotCooldown = enemyShotInterval
+    -- 5단계: 점수와 라이프 초기화 (HUD와 게임오버는 7단계에서 추가).
+    score = 0
+    lives = 3
 end
 
 function love.update(dt)
@@ -166,6 +208,8 @@ function love.update(dt)
     updateEnemies(dt)
     -- 4단계: 이동한 적의 현재 위치에서 발사하고 적 총알을 갱신한다.
     updateEnemyBullets(dt)
+    -- 5단계: 모든 위치를 갱신한 뒤 충돌을 검사한다.
+    checkCollisions()
 end
 
 function love.draw()
