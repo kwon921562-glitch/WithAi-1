@@ -41,6 +41,52 @@ local score = 0
 local lives = 3
 local scorePerEnemy = 100
 
+-- 6단계: 파괴 파티클 + 피격 flash + 화면 shake
+local particles = {}
+local particleLifetime = 0.45
+local flashDuration = 0.12
+local flashTimer = 0
+local shakeDuration = 0.25
+local shakeTimer = 0
+local shakeX, shakeY = 0, 0
+
+local function spawnParticles(x, y)
+    for i = 1, 12 do
+        local angle = love.math.random() * math.pi * 2
+        local speed = love.math.random(60, 160)
+        particles[#particles + 1] = {
+            x = x,
+            y = y,
+            vx = math.cos(angle) * speed,
+            vy = math.sin(angle) * speed,
+            life = particleLifetime,
+        }
+    end
+end
+
+local function updateEffects(dt)
+    for i = #particles, 1, -1 do
+        local particle = particles[i]
+        particle.life = particle.life - dt
+        if particle.life <= 0 then
+            table.remove(particles, i)
+        else
+            particle.x = particle.x + particle.vx * dt
+            particle.y = particle.y + particle.vy * dt
+        end
+    end
+
+    flashTimer = math.max(0, flashTimer - dt)
+    shakeTimer = math.max(0, shakeTimer - dt)
+    shakeX, shakeY = 0, 0
+    if shakeTimer > 0 then
+        -- 시간이 지날수록 흔들림을 줄인다. 실제 충돌 좌표는 바꾸지 않는다.
+        local strength = 6 * shakeTimer / shakeDuration
+        shakeX = (love.math.random() * 2 - 1) * strength
+        shakeY = (love.math.random() * 2 - 1) * strength
+    end
+end
+
 -- 두 사각형이 가로와 세로 방향 모두 겹치면 충돌이다(AABB).
 local function overlaps(ax, ay, aw, ah, bx, by, bw, bh)
     return ax < bx + bw and ax + aw > bx
@@ -56,6 +102,8 @@ local function checkCollisions()
             local enemy = enemies[j]
             if overlaps(bullet.x, bullet.y, bulletWidth, bulletHeight,
                 enemy.x, enemy.y, enemyWidth, enemyHeight) then
+                -- 6단계: 적을 제거하기 전에 중심에서 파괴 파티클을 만든다.
+                spawnParticles(enemy.x + enemyWidth / 2, enemy.y + enemyHeight / 2)
                 table.remove(bullets, i)
                 table.remove(enemies, j)
                 score = score + scorePerEnemy
@@ -71,6 +119,9 @@ local function checkCollisions()
             player.x, player.y, player.width, player.height) then
             table.remove(enemyBullets, i)
             lives = math.max(0, lives - 1) -- 라이프가 음수가 되지 않도록 제한
+            -- 6단계: 피격 시 번쩍임과 흔들림을 시작한다.
+            flashTimer = flashDuration
+            shakeTimer = shakeDuration
         end
     end
 end
@@ -165,9 +216,15 @@ function love.load()
     -- 5단계: 점수와 라이프 초기화 (HUD와 게임오버는 7단계에서 추가).
     score = 0
     lives = 3
+    -- 6단계: 연출 상태도 처음으로 되돌린다.
+    particles = {}
+    flashTimer, shakeTimer = 0, 0
+    shakeX, shakeY = 0, 0
 end
 
 function love.update(dt)
+    -- 6단계: 기존 연출을 갱신한 뒤 이번 프레임의 충돌 연출을 생성한다.
+    updateEffects(dt)
     -- update에서는 입력을 처리하고 위치를 변경한다.
     local direction = 0
     if love.keyboard.isDown("left", "a") then
@@ -213,6 +270,9 @@ function love.update(dt)
 end
 
 function love.draw()
+    -- 6단계: 게임 화면에만 흔들림을 적용하고 그린 뒤 좌표계를 복원한다.
+    love.graphics.push()
+    love.graphics.translate(shakeX, shakeY)
     -- draw에서는 현재 상태를 화면에 그리기만 한다.
     love.graphics.setColor(0.2, 0.9, 1)
     love.graphics.rectangle("fill", player.x, player.y, player.width, player.height)
@@ -234,4 +294,18 @@ function love.draw()
     for _, bullet in ipairs(enemyBullets) do
         love.graphics.rectangle("fill", bullet.x, bullet.y, enemyBulletWidth, enemyBulletHeight)
     end
+
+    -- 6단계: 파티클은 남은 수명에 따라 서서히 투명해진다.
+    for _, particle in ipairs(particles) do
+        love.graphics.setColor(1, 0.7, 0.2, particle.life / particleLifetime)
+        love.graphics.rectangle("fill", particle.x - 2, particle.y - 2, 4, 4)
+    end
+    love.graphics.pop()
+
+    -- 흔들림과 관계없이 화면 전체에 반투명 흰색을 덮어 flash를 표현한다.
+    if flashTimer > 0 then
+        love.graphics.setColor(1, 1, 1, 0.5 * flashTimer / flashDuration)
+        love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
+    end
+    love.graphics.setColor(1, 1, 1, 1)
 end
