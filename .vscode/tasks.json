@@ -3,7 +3,7 @@
     "tasks": [
         {
             "label": "Love2D: Run Galaga",
-            "type": "shell",
+            "type": "process",
             "command": "love",
             "args": [
                 "${workspaceFolder}/Galag_Mono(과제1)"
