@@ -15,6 +15,10 @@ local bulletHeight = 12
 local bulletSpeed = 500
 local shotInterval = 0.2 -- 발사 사이에 기다리는 시간(초)
 local shotCooldown = 0
+-- 2라운드부터 X 키 유도탄: 가장 가까운 적을 추적, 재사용 대기 3초.
+local missileCooldown = 0
+local missileInterval = 3
+local missileSpeed = 380
 
 -- 3단계: 적 편대(그리드) 생성 + 좌우 이동 + 끝에서 한 칸 하강
 local enemies = {}
@@ -264,16 +268,18 @@ end
 
 -- 라운드 시작은 점수/라이프를 유지하고 편대와 총알만 새로 준비한다.
 local function startRound()
-    enemySpeed = math.min(70 + (round - 1) * 15, 220)
-    enemyShotInterval = math.max(0.8 - (round - 1) * 0.06, 0.25)
-    enemyBulletSpeed = math.min(240 + (round - 1) * 15, 420)
+    enemyRows = round >= 2 and 4 or 3
+    enemySpeed = math.min(70 + (round - 1) * 40, 230)
+    enemyShotInterval = math.max(0.8 - (round - 1) * 0.25, 0.25)
+    enemyBulletSpeed = math.min(240 + (round - 1) * 40, 420)
     roundTimer = 0
     -- 플레이어를 화면 아래쪽 중앙에 배치한다.
     player.x = (love.graphics.getWidth() - player.width) / 2
     player.y = love.graphics.getHeight() - player.height - 30
     bullets = {}
     shotCooldown = 0
-    -- 3단계: 화면 위쪽 중앙에 3행 8열 편대를 만든다.
+    missileCooldown = 0
+    -- 3단계: 1라운드는 3행, 2라운드부터는 4행 편대를 만든다.
     createEnemies()
     -- 4단계: 적 총알과 발사 대기 시간을 초기화한다.
     enemyBullets = {}
@@ -308,6 +314,15 @@ function love.keypressed(key)
     -- 7단계: 게임오버 상태에서 R 키를 한 번 누르면 새 게임을 시작한다.
     if gameOver and key == "r" then
         resetGame()
+    elseif key == "x" and round >= 2 and not gameOver
+        and roundTimer == 0 and missileCooldown <= 0 and #enemies > 0 then
+        bullets[#bullets + 1] = {
+            x = player.x + (player.width - bulletWidth) / 2,
+            y = player.y - bulletHeight,
+            homing = true,
+            life = 4, -- 추적이 길어져도 총알이 무한히 남지 않는다.
+        }
+        missileCooldown = missileInterval
     end
 end
 
@@ -328,6 +343,7 @@ function love.update(dt)
         return
     end
     -- update에서는 입력을 처리하고 위치를 변경한다.
+    missileCooldown = math.max(0, missileCooldown - dt)
     local direction = 0
     if love.keyboard.isDown("left", "a") then
         direction = direction - 1
@@ -347,8 +363,30 @@ function love.update(dt)
     -- 뒤에서부터 순회하면 제거 후에도 다음 총알을 건너뛰지 않는다.
     for i = #bullets, 1, -1 do
         local bullet = bullets[i]
-        bullet.y = bullet.y - bulletSpeed * dt
-        if bullet.y + bulletHeight < 0 then
+        if bullet.homing then
+            -- 매 프레임 살아 있는 가장 가까운 적을 다시 찾아 추적한다.
+            local target, nearestDistance
+            for _, enemy in ipairs(enemies) do
+                local dx = enemy.x + enemyWidth / 2 - (bullet.x + bulletWidth / 2)
+                local dy = enemy.y + enemyHeight / 2 - (bullet.y + bulletHeight / 2)
+                local distance = dx * dx + dy * dy
+                if not nearestDistance or distance < nearestDistance then
+                    target, nearestDistance = enemy, distance
+                end
+            end
+            if target and nearestDistance > 0 then
+                local distance = math.sqrt(nearestDistance)
+                local step = math.min(missileSpeed * dt, distance)
+                bullet.x = bullet.x + (target.x + enemyWidth / 2 - bullet.x - bulletWidth / 2) / distance * step
+                bullet.y = bullet.y + (target.y + enemyHeight / 2 - bullet.y - bulletHeight / 2) / distance * step
+            else
+                bullet.y = bullet.y - missileSpeed * dt
+            end
+            bullet.life = bullet.life - dt
+        else
+            bullet.y = bullet.y - bulletSpeed * dt
+        end
+        if bullet.y + bulletHeight < 0 or (bullet.homing and bullet.life <= 0) then
             table.remove(bullets, i)
         end
     end
@@ -397,6 +435,12 @@ function love.draw()
     -- 2단계: 총알은 노란색 사각형으로 그린다.
     love.graphics.setColor(1, 0.9, 0.2)
     for _, bullet in ipairs(bullets) do
+        if bullet.homing then
+            love.graphics.setColor(0.3, 1, 0.5)
+            love.graphics.circle("line", bullet.x + bulletWidth / 2, bullet.y + bulletHeight / 2, 9)
+        else
+            love.graphics.setColor(1, 0.9, 0.2)
+        end
         love.graphics.rectangle("fill", bullet.x, bullet.y, bulletWidth, bulletHeight)
     end
 
@@ -443,10 +487,19 @@ function love.draw()
     love.graphics.print("Score: " .. score, 16, 16)
     love.graphics.printf("Lives: " .. lives, 0, 16, screenWidth - 16, "right")
     love.graphics.printf("Round: " .. round, 0, 16, screenWidth, "center")
+    local skillText = "Homing [X]: unlocks in Round 2"
+    if round >= 2 then
+        skillText = missileCooldown <= 0 and "Homing [X]: READY"
+            or string.format("Homing [X]: %.1fs", missileCooldown)
+    end
+    love.graphics.print(skillText, 16, screenHeight - 22)
 
     if roundTimer > 0 and not gameOver then
         love.graphics.printf("ROUND " .. round .. " CLEAR!", 0, screenHeight / 2 - 20, screenWidth, "center")
         love.graphics.printf("Next round: " .. (round + 1), 0, screenHeight / 2 + 20, screenWidth, "center")
+        if round == 1 then
+            love.graphics.printf("Homing unlocked: press X", 0, screenHeight / 2 + 50, screenWidth, "center")
+        end
     end
 
     if gameOver then
