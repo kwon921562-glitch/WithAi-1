@@ -49,12 +49,19 @@ local flashTimer = 0
 local shakeDuration = 0.25
 local shakeTimer = 0
 local shakeX, shakeY = 0, 0
+-- 충돌 연출 확장: 폭발 링과 피격 후 1초간 무적/깜빡임
+local bursts = {}
+local burstLifetime = 0.35
+local invincibleTimer = 0
+local invincibleDuration = 1
 
 -- 7단계: HUD(점수/라이프) + 게임오버 + R 키 재시작
 local gameOver = false
 
-local function spawnParticles(x, y)
-    for i = 1, 12 do
+local function spawnParticles(x, y, isPlayer)
+    local color = isPlayer and {0.3, 0.9, 1} or {1, 0.7, 0.2}
+    bursts[#bursts + 1] = {x = x, y = y, life = burstLifetime, color = color}
+    for i = 1, 24 do
         local angle = love.math.random() * math.pi * 2
         local speed = love.math.random(60, 160)
         particles[#particles + 1] = {
@@ -63,11 +70,30 @@ local function spawnParticles(x, y)
             vx = math.cos(angle) * speed,
             vy = math.sin(angle) * speed,
             life = particleLifetime,
+            color = color,
         }
     end
 end
 
+local function damagePlayer()
+    if invincibleTimer > 0 or lives <= 0 then
+        return
+    end
+    lives = math.max(0, lives - 1)
+    invincibleTimer = invincibleDuration
+    spawnParticles(player.x + player.width / 2, player.y + player.height / 2, true)
+    flashTimer = flashDuration
+    shakeTimer = shakeDuration
+end
+
 local function updateEffects(dt)
+    invincibleTimer = math.max(0, invincibleTimer - dt)
+    for i = #bursts, 1, -1 do
+        bursts[i].life = bursts[i].life - dt
+        if bursts[i].life <= 0 then
+            table.remove(bursts, i)
+        end
+    end
     for i = #particles, 1, -1 do
         local particle = particles[i]
         particle.life = particle.life - dt
@@ -121,10 +147,16 @@ local function checkCollisions()
         if overlaps(bullet.x, bullet.y, enemyBulletWidth, enemyBulletHeight,
             player.x, player.y, player.width, player.height) then
             table.remove(enemyBullets, i)
-            lives = math.max(0, lives - 1) -- 라이프가 음수가 되지 않도록 제한
-            -- 6단계: 피격 시 번쩍임과 흔들림을 시작한다.
-            flashTimer = flashDuration
-            shakeTimer = shakeDuration
+            damagePlayer()
+        end
+    end
+
+    -- 적 몸체에 닿아도 피격된다. 무적 중에는 접촉 피해를 받지 않는다.
+    for _, enemy in ipairs(enemies) do
+        if overlaps(player.x, player.y, player.width, player.height,
+            enemy.x, enemy.y, enemyWidth, enemyHeight) then
+            damagePlayer()
+            break
         end
     end
 end
@@ -219,6 +251,8 @@ local function resetGame()
     lives = 3
     -- 6단계: 연출 상태도 처음으로 되돌린다.
     particles = {}
+    bursts = {}
+    invincibleTimer = 0
     flashTimer, shakeTimer = 0, 0
     shakeX, shakeY = 0, 0
     gameOver = false
@@ -297,7 +331,13 @@ function love.draw()
     love.graphics.push()
     love.graphics.translate(shakeX, shakeY)
     -- draw에서는 현재 상태를 화면에 그리기만 한다.
-    love.graphics.setColor(0.2, 0.9, 1)
+    -- 무적 시간 동안 밝은색과 반투명 색을 교대로 표시한다.
+    local blinking = invincibleTimer > 0 and math.floor(invincibleTimer * 12) % 2 == 0
+    if blinking then
+        love.graphics.setColor(1, 1, 1, 0.3)
+    else
+        love.graphics.setColor(0.2, 0.9, 1)
+    end
     love.graphics.rectangle("fill", player.x, player.y, player.width, player.height)
 
     -- 2단계: 총알은 노란색 사각형으로 그린다.
@@ -320,8 +360,18 @@ function love.draw()
 
     -- 6단계: 파티클은 남은 수명에 따라 서서히 투명해진다.
     for _, particle in ipairs(particles) do
-        love.graphics.setColor(1, 0.7, 0.2, particle.life / particleLifetime)
+        local color = particle.color
+        love.graphics.setColor(color[1], color[2], color[3], particle.life / particleLifetime)
         love.graphics.rectangle("fill", particle.x - 2, particle.y - 2, 4, 4)
+    end
+    -- 충돌 지점에 밝은 중심과 바깥으로 퍼지는 링을 그린다.
+    for _, burst in ipairs(bursts) do
+        local progress = 1 - burst.life / burstLifetime
+        local color = burst.color
+        love.graphics.setColor(color[1], color[2], color[3], 1 - progress)
+        love.graphics.circle("line", burst.x, burst.y, 4 + progress * 36)
+        love.graphics.setColor(1, 1, 1, (1 - progress) * 0.8)
+        love.graphics.circle("fill", burst.x, burst.y, 10 * (1 - progress))
     end
     love.graphics.pop()
 
