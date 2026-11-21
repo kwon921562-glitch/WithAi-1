@@ -15,6 +15,7 @@ local StatusView = require("views.status_view")
 local EnemyView = require("views.enemy_view")
 local InventoryView = require("views.inventory_view")
 local QuestView = require("views.quest_view")
+local KillListView = require("views.kill_list_view")
 local LogView = require("views.log_view")
 local CommandView = require("views.command_view")
 
@@ -23,9 +24,11 @@ local ExploreController = require("controllers.explore_controller")
 local BattleController = require("controllers.battle_controller")
 local InventoryController = require("controllers.inventory_controller")
 local EndController = require("controllers.end_controller")
+local ShopController = require("controllers.shop_controller")
 
 -- ── Model ──
 local game = GameModel.new(data)
+local command = CommandView.new()
 
 -- ── View: 위젯 등록 + 모드별 레이아웃 ──
 local widgets = {
@@ -33,14 +36,17 @@ local widgets = {
   enemy = EnemyView.new(),
   inventory = InventoryView.new(),
   quest = QuestView.new(),
+  killList = KillListView.new(),
   log = LogView.new(),
-  command = CommandView.new(),
+  command = command,
+  shop = { title = "상점", lines = command.shopLines },
 }
 local layouts = {
-  explore = { "status", "inventory", "quest", "log", "command" },
-  battle = { "status", "enemy", "log", "command" },
-  inventory = { "status", "enemy", "inventory", "command" },
-  default = { "status", "quest", "log", "command" },
+  explore = { "status", "inventory", "quest", "killList", "log", "command" },
+  battle = { "status", "enemy", "killList", "log", "command" },
+  inventory = { "status", "enemy", "inventory", "killList", "command" },
+  shop = { "status", "inventory", "killList", "log", "shop" },
+  default = { "status", "quest", "killList", "log", "command" },
 }
 local screen = ScreenView.new(print, widgets, layouts)
 
@@ -50,6 +56,7 @@ local router = InputRouter.new(game, screen, {
   explore = ExploreController.new(),
   battle = BattleController.new(),
   inventory = InventoryController.new(),
+  shop = ShopController.new(),
   gameover = endController,
   victory = endController,
 })
@@ -63,6 +70,7 @@ local script = {
   "n", "i", "1", -- 철검 장착
   "n", "x", "a", "a", "a", "a", -- 오크
   "n", "r", -- 박쥐 떼에게서 도망
+  "n", "b", "l", -- 상점에서 물약 구매 후 나가기
   "n", -- 출구
   "q",
 }

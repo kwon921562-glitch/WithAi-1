@@ -36,6 +36,12 @@ local FORMAT = {
   quest_completed = function(d)
     return "★ 퀘스트 완료: " .. d.text
   end,
+  achievement_unlocked = function(d)
+    return string.format("★ 업적 달성: 처치 골드 %d 이상 획득", d.target)
+  end,
+  item_bought = function(d)
+    return string.format("%s 구매 (골드 -%d)", d.name, d.price)
+  end,
   player_died = function(d)
     return d.by .. " 에게 쓰러졌다..."
   end,

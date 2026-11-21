@@ -5,6 +5,7 @@ local COMMANDS = {
   explore = "n: 다음 방  |  i: 가방  |  q: 종료",
   battle = "a: 공격  |  r: 도망  |  i: 가방(아이템 사용 시 턴 소모)  |  q: 종료",
   inventory = "번호: 사용  |  b: 닫기  |  q: 종료",
+  shop = "b: 물약 구매  |  l: 상점 나가기  |  q: 종료",
   gameover = "GAME OVER — 아무 키나 입력하면 종료",
   victory = "VICTORY — 아무 키나 입력하면 종료",
 }
@@ -18,6 +19,11 @@ end
 
 function CommandView:lines(game)
   return { COMMANDS[game.mode] or "" }
+end
+
+function CommandView:shopLines(game)
+  local room = game.dungeon.rooms[game.dungeon.index]
+  return { string.format("%s: %d골드", room.item.name, room.price), COMMANDS.shop }
 end
 
 return CommandView

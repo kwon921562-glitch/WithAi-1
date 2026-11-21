@@ -67,9 +67,11 @@ local CHECKED_FILES = {
   "models/event_bus.lua", "models/player_model.lua", "models/enemy_model.lua",
   "models/inventory_model.lua", "models/dungeon_model.lua", "models/quest_model.lua",
   "models/log_model.lua", "models/game_model.lua",
+  "models/kill_list_model.lua", "models/achievement_model.lua",
   "controllers/explore_controller.lua", "controllers/battle_controller.lua",
   "controllers/inventory_controller.lua", "controllers/end_controller.lua",
   "controllers/input_router.lua",
+  "controllers/shop_controller.lua",
 }
 for _, path in ipairs(CHECKED_FILES) do
   local file = assert(io.open(root .. path, "r"), "파일 없음: " .. path)
@@ -247,6 +249,109 @@ do
   check("승리 후 아무 입력 → 종료", router:handle("x") == false)
   check("입력마다 render 호출", renders == 7)
   check("q 는 어느 모드에서나 종료", InputRouter.new(newGame({ EXIT }), fakeView, {}):handle("q") == false)
+end
+
+print("[5] MVC 퀴즈")
+do
+  local data = require("data.dungeon_data")
+  local g = GameModel.new(data)
+  local quest
+  for _, candidate in ipairs(g.quests.quests) do
+    if candidate.event == "item_used" then
+      quest = candidate
+    end
+  end
+  check("아이템 사용 퀘스트가 데이터로 등록됨", quest and quest.needed == 2)
+  g.inventory:add(POTION.item)
+  g.inventory:add(SWORD.item)
+  g:openInventory()
+  g:useItem(9)
+  check("실패한 사용은 진행도를 올리지 않음", quest and quest.progress == 0)
+  g:useItem(1)
+  check("물약 사용 → 1/2", quest and quest.progress == 1 and not quest.done)
+  g:openInventory()
+  g:useItem(1)
+  check("장비 장착 → 2/2 완료", quest and quest.progress == 2 and quest.done)
+end
+
+do
+  local KillListView = require("views.kill_list_view")
+  local g = newGame({ WEAK, TOUGH, WEAK, EXIT })
+  local view = KillListView.new()
+  check("처치 목록 초기 안내", contains(view:lines(g), "없습니다"))
+  g:explore()
+  g:attack()
+  g:explore()
+  g:flee()
+  g:explore()
+  g:attack()
+  local lines = view:lines(g)
+  check("처치만 기록하고 같은 이름도 각각 표시", #lines == 2 and lines[1] == "쥐" and lines[2] == "쥐")
+end
+
+do
+  local AchievementModel = require("models.achievement_model")
+  local bus = EventBus.new()
+  local log = LogModel.new(bus, 8)
+  local count = 0
+  AchievementModel.new(bus)
+  bus:on("achievement_unlocked", function()
+    count = count + 1
+  end)
+  bus:emit("enemy_killed", { name = "늑대", gold = 14 })
+  check("처치 골드 14에서 업적 없음", count == 0)
+  bus:emit("enemy_killed", { name = "쥐", gold = 1 })
+  check("처치 골드 15에서 업적 로그 표시", count == 1
+    and contains(LogView.new():lines({ log = log }), "업적 달성"))
+  bus:emit("enemy_killed", { name = "오크", gold = 20 })
+  check("추가 처치에도 업적 이벤트는 한 번", count == 1)
+end
+
+do
+  local ShopController = require("controllers.shop_controller")
+  local data = require("data.dungeon_data")
+  local shop = data.rooms[#data.rooms - 1]
+  check("출구 바로 앞에 상점 배치", shop.kind == "shop" and data.rooms[#data.rooms].kind == "exit")
+  local g = newGame({ shop, EXIT })
+  local notices = {}
+  local router = InputRouter.new(g, {
+    showNotice = function(_, message) notices[#notices + 1] = message end,
+    render = function() end,
+  }, { explore = ExploreController.new(), shop = ShopController.new() })
+  router:handle("n")
+  check("탐험 입력으로 상점 진입", g.mode == "shop" and g.dungeon.index == 1)
+  g.player:addGold(4)
+  router:handle("b")
+  check("골드 부족 이유와 상태 보존", contains(notices, "골드가 부족") and g.player.gold == 4
+    and #g.inventory.items == 0 and g.mode == "shop")
+  g.player:addGold(11)
+  router:handle("b")
+  check("물약 구매에 5골드 차감", g.player.gold == 10 and #g.inventory.items == 1
+    and g.inventory.items[1].kind == "potion" and g.mode == "shop")
+  router:handle("b")
+  router:handle("b")
+  check("가방 가득 이유와 상태 보존", contains(notices, "가방이 가득") and g.player.gold == 5
+    and #g.inventory.items == 2 and g.mode == "shop")
+  router:handle("l")
+  check("상점 나가기는 현재 방에서 탐험 복귀", g.mode == "explore" and g.dungeon.index == 1)
+  router:handle("n")
+  check("상점 다음 방에서 승리", g.mode == "victory")
+
+  local reward = { kind = "enemy", enemy = { name = "늑대", hp = 5, attack = 1, gold = 7 } }
+  local run = newGame({ reward, shop, reward, WEAK, EXIT })
+  local unlocked = 0
+  run.bus:on("achievement_unlocked", function() unlocked = unlocked + 1 end)
+  run:explore()
+  run:attack()
+  run:explore()
+  run:buyPotion()
+  run:leaveShop()
+  run:explore()
+  run:attack()
+  check("상점 지출 후에도 처치 골드 14에서는 미달", run.player.gold == 9 and unlocked == 0)
+  run:explore()
+  run:attack()
+  check("잔액 11이어도 누적 처치 골드 16이면 업적 달성", run.player.gold == 11 and unlocked == 1)
 end
 
 print(string.format("\n결과: %d 통과, %d 실패", passed, failed))

@@ -8,7 +8,7 @@
 --              ├─ QuestModel  ◀─┐ 이벤트 버스로만 연결
 --              └─ LogModel    ◀─┘ (GameModel 은 emit 만 한다)
 --
--- mode: "explore" | "battle" | "inventory" | "gameover" | "victory"
+-- mode: "explore" | "battle" | "inventory" | "shop" | "gameover" | "victory"
 -- 모든 행동 메서드는 성공하면 true, 실패하면 false, 이유 를 돌려준다.
 
 local EventBus = require("models.event_bus")
@@ -18,6 +18,8 @@ local InventoryModel = require("models.inventory_model")
 local DungeonModel = require("models.dungeon_model")
 local QuestModel = require("models.quest_model")
 local LogModel = require("models.log_model")
+local KillListModel = require("models.kill_list_model")
+local AchievementModel = require("models.achievement_model")
 
 local GameModel = {}
 GameModel.__index = GameModel
@@ -28,12 +30,19 @@ function GameModel.new(data)
   self.bus = EventBus.new()
   self.log = LogModel.new(self.bus, data.logLimit)
   self.quests = QuestModel.new(self.bus, data.quests)
+  self.killList = KillListModel.new(self.bus)
+  self.achievement = AchievementModel.new(self.bus)
   self.player = PlayerModel.new(data.player)
   self.inventory = InventoryModel.new(data.inventoryCapacity)
   self.dungeon = DungeonModel.new(data.rooms)
   self.enemy = nil
   self.mode = "explore"
   self.returnMode = nil
+  self.bus:on("room_entered", function(event)
+    if self.dungeon.rooms[event.index].kind == "shop" then
+      self.mode = "shop"
+    end
+  end)
   return self
 end
 
@@ -172,6 +181,34 @@ function GameModel:useItem(index)
   if self.mode == "battle" then
     self:enemyTurn()
   end
+  return true
+end
+
+function GameModel:buyPotion()
+  local ok, err = requireMode(self, "shop")
+  if not ok then
+    return false, err
+  end
+
+  local room = self.dungeon.rooms[self.dungeon.index]
+  if self.player.gold < room.price then
+    return false, "골드가 부족합니다"
+  end
+  local added, reason = self.inventory:add(room.item)
+  if not added then
+    return false, reason
+  end
+  self.player:addGold(-room.price)
+  self.bus:emit("item_bought", { name = room.item.name, price = room.price })
+  return true
+end
+
+function GameModel:leaveShop()
+  local ok, err = requireMode(self, "shop")
+  if not ok then
+    return false, err
+  end
+  self.mode = "explore"
   return true
 end
 
